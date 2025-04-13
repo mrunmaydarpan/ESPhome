@@ -1,5 +1,5 @@
 substitutions:
-  name: mdtronix-3ch-switch-d63ca7
+  name: mdtronix-3ch-switch
   friendly_name: MDtronix 3ch Switch
 packages:
   MDtronix.3ch-switch: github://mrunmaydarpan/ESPHome-config/3ch-switch.yaml
