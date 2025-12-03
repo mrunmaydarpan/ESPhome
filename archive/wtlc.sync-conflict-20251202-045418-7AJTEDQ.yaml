@@ -1,0 +1,265 @@
+substitutions:
+  tank_height: 100
+  full_tank_distance: 10
+  dryrun_interval: 300s
+  sensor_check_interval: 10s
+  
+logger:
+  level: DEBUG
+
+packages:
+  pins: !include WTLC/pins.yaml
+  display: !include WTLC/display.yaml
+  sensors: !include WTLC/sensors.yaml
+  base: !include WTLC/base.yaml
+  dryrun: !include WTLC/dryrun.yaml
+  # intervals: !include WTLC/intervals.yaml
+  # switches: !include WTLC/switches.yaml
+  # binary_sensor: !include WTLC/binary_sensors.yaml
+
+####################################################################################
+
+globals:
+  - id: var_sensor_state
+    type: bool
+    initial_value: 'false'
+
+  - id: ota_inProgress
+    type: bool
+    initial_value: 'false'
+
+####################################################################################
+
+light:
+  - platform: status_led
+    id: led_id
+    pin:
+      number: $led_pin
+      inverted: False
+
+####################################################################################
+
+text_sensor:
+  # - platform: debug
+  #   reset_reason:
+  #     name: "Reset Reason"
+
+  - platform: wifi_info
+    ip_address:
+      name: IP
+      icon: mdi:ip
+
+  - platform: template
+    name: "Restart Reason"
+    icon: mdi:restart
+    lambda: |-
+      return { ESP.getResetReason().c_str() };
+      
+####################################################################################
+
+# output:
+#   - platform: esp8266_pwm
+#     id: rtttl_out
+#     pin:
+#       number: $buzzer_pin
+#       inverted: False
+#     # frequency: 2000 Hz
+
+# ####################################################################################
+
+# rtttl:
+#   output: rtttl_out
+#   id: buzz_id
+#   gain: 10%
+
+####################################################################################
+
+number:
+  - platform: template
+    name: "Start Pump at"
+    id: start_pump_id
+    optimistic: true
+    restore_value: yes
+    min_value: 10
+    max_value: 50
+    step: 10
+    unit_of_measurement: "%"
+    icon: "mdi:water-check"
+    initial_value: 10
+    entity_category: "config"
+
+  - platform: template
+    name: "Stop Pump at"
+    id: stop_pump_id
+    optimistic: true
+    restore_value: True
+    min_value: 70
+    max_value: 100
+    step: 10
+    unit_of_measurement: "%"
+    icon: "mdi:water-check"
+    initial_value: 100
+    entity_category: "config"
+
+####################################################################################
+
+button:
+  - platform: restart
+    name: Restart
+    id: restart_id
+    entity_category: "diagnostic"
+
+  - platform: factory_reset
+    name: Factory Reset
+    id: factory_reset_id
+    entity_category: "diagnostic"
+
+####################################################################################
+
+sensor:
+  - platform: template
+    id: sensor_id
+    name: "Distance_UART"
+    unit_of_measurement: "cm"
+    device_class: distance
+    accuracy_decimals: 0
+    entity_category: "diagnostic"
+    # update_interval: 1s
+    filters:
+      - throttle: 2s
+      # - timeout: 5s      
+
+  - platform: template
+    id: water_level_id
+    accuracy_decimals: 0
+    unit_of_measurement: "%"
+    update_interval: 1s
+    icon: mdi:water-percent
+    name: Level
+    # filters:
+    #   - median: # Smooth out noise
+    #       window_size: 7
+    #       send_every: 3
+    #       send_first_at: 1
+    lambda: |-
+      if (isnan(id(sensor_id).state)) return 0;
+      // auto d = id(sensor_id).state;
+      auto level = map(id(sensor_id).state, ${tank_height}, ${full_tank_distance}, 0, 100);
+      if (level < 0) level = 0;
+      if (level > 100) level = 100;
+      return level;
+    on_value_range:
+      - below: !lambda return id(start_pump_id).state;
+        then:
+          - logger.log:
+              tag: "water_level"
+              level: warn
+              format: "Water level below start threshold, turning ON pump."
+          - if:
+              condition:
+                and:
+                  - switch.is_on: mode_id
+                  - switch.is_off: pump_id
+              then:
+                - switch.turn_on: pump_id
+
+      - above: !lambda return id(stop_pump_id).state;
+        then:
+          - switch.turn_off: pump_id
+          - logger.log:
+              tag: "water_level"
+              level: warn
+              format: "Water level above stop threshold, turning OFF pump"          
+
+####################################################################################
+
+binary_sensor:
+  - platform: gpio
+    pin: 
+      number: $mode_pin
+      mode: INPUT_PULLUP
+      inverted: True
+    id: mode_button_id
+    on_press:
+      then:
+        - switch.toggle: mode_id
+
+  - platform: gpio
+    id: pump_on_id
+    pin:
+      number: $button_pin
+      mode: INPUT_PULLUP
+      inverted: True
+    on_press: 
+      then:
+        - switch.toggle: pump_id
+
+  - platform: template
+    id: sensor_state_id
+    name: Sensor
+    device_class: problem
+    entity_category: diagnostic
+    # on_press:
+    #   - globals.set:s
+    #       id: page
+    #       value: '"oled_error_page"'
+
+    # on_release:
+    #   - globals.set:
+    #       id: page
+    #       value: '"oled_level_page"'
+
+####################################################################################
+
+switch:    
+  - platform: template
+    id: pump_id
+    name: Pump
+    icon: mdi:pump
+    optimistic: true
+    restore_mode: RESTORE_DEFAULT_OFF
+    on_turn_off:
+      - lambda: |- 
+          digitalWrite($relay_1_pin, LOW);
+          digitalWrite($led_pin, LOW);
+      - component.suspend: dryrun_check_timer
+      - lambda: ESP_LOGW("DRYRUN", "Timer suspended");
+    
+    on_turn_on:
+      then:
+        - lambda: |-
+            id(dryrun_last_value) = id(sensor_id).state;
+            id(dryrun_flag) = false;
+        - if:
+            condition:
+              - lambda: return id(sensor_id).state > ($full_tank_distance + 40);
+            then:
+              - lambda: |-
+                  digitalWrite($relay_1_pin, HIGH);
+                  digitalWrite($led_pin, HIGH);
+              - delay: $dryrun_interval
+              - component.resume: dryrun_check_timer
+              - lambda: ESP_LOGW("DRYRUN", "Timer resumed");
+              - logger.log:
+                  tag: test
+                  level: INFO
+                  format: "logic check"
+            else:
+              - delay: 1s
+              - switch.turn_off: pump_id
+
+  - platform: template
+    id: mode_id
+    name: Automatic Mode
+    icon: mdi:flash-auto
+    optimistic: True
+    restore_mode: RESTORE_DEFAULT_OFF
+    entity_category: config
+
+  - platform: template
+    id: dryrun_id
+    optimistic: True
+    name: DryRun
+    icon: mdi:water-remove
+    restore_mode: RESTORE_DEFAULT_ON
+    entity_category: 'config'

@@ -1,0 +1,134 @@
+i2c:
+  frequency: 100kHz
+
+esphome:
+  on_boot:
+    - priority: 800
+      then:
+        # - lambda: id(page) = "oled_splash_page";
+        - display.page.show: oled_splash_page
+        - delay: 3s
+        - display.page.show: oled_level_page
+
+ota:
+  - platform: esphome
+    on_progress:
+      then:
+        - lambda: |-
+            id(ota_progress) = x;  // store progress percentage
+            id(oled_id).update();
+            // id(page) = "oled_ota_page";
+        - display.page.show: oled_ota_page
+     
+image:
+  defaults:
+    type: binary
+    resize: 128x64
+  images:
+    - file: "WTLC/logo.png"
+      id: logo
+
+    - file: "WTLC/alert.png"
+      id: alert
+
+    - file: "WTLC/dryrun.png"
+      id: dryrun
+
+globals:
+  - id: ota_progress
+    type: float
+    restore_value: no
+    initial_value: "0"
+
+  - id: splash_flag
+    type: bool
+    restore_value: no
+    initial_value: "false"
+ 
+  # - id: page
+  #   type: std::string
+  #   restore_value: no
+  #   initial_value: '"oled_splash_page"'
+
+font:
+  - file: "gfonts://Roboto"
+    id: font1
+    size: 14
+  - file: "gfonts://Roboto"
+    id: font2
+    size: 45
+  - file: "gfonts://Roboto"
+    id: font3
+    size: 24
+
+####################################################################################
+
+display:
+  - platform: ssd1306_i2c
+    model: "SSD1306 128x64"
+    id: oled_id
+    address: 0x3C
+    # update_interval: 5s
+    pages:
+      - id: oled_splash_page
+        lambda: it.image(0, 0, id(logo));
+
+      - id: oled_level_page
+        lambda: |-
+          it.clear();
+          it.printf(10, 0, id(font1), "%s", id(mode_id).state? "AUTO" : "MANUAL");
+          it.printf(108, 13, id(font2), TextAlign::RIGHT, "%0.0f", id(water_level_id).state);
+          it.printf(110, 32, id(font3), "%%");
+
+      - id: oled_ota_page
+        lambda: |-
+          float p = id(ota_progress);
+          if (p < 0 || p > 100) p = 0;
+          it.printf(05, 0, id(font1), "UPDATING: %0.0f%%", p);
+          it.rectangle(05, 20, it.get_width() - 10, 20);
+          int bar_width = (int)((it.get_width() - 12) * p / 100.0f);
+          it.filled_rectangle(6, 21, bar_width, 18);
+
+      - id: oled_error_page
+        lambda: it.image(0, 0, id(alert));
+
+      - id: oled_dryrun_page
+        lambda: it.image(0, 0, id(dryrun));
+
+
+    # lambda: |-
+    #   if(id(page)=="oled_splash_page")
+    #   {          
+    #     if(!id(splash_flag))
+    #     {
+    #       it.image(0, 0, id(logo));
+    #     }
+    #   }
+
+    #   else if(id(page)=="oled_level_page")
+    #   {
+    #     it.clear();
+    #     it.printf(10, 0, id(font1), "%s", id(mode_id).state? "AUTO" : "MANUAL");
+    #     it.printf(108, 13, id(font2), TextAlign::RIGHT, "%0.0f", id(water_level_id).state);
+    #     it.printf(110, 32, id(font3), "%%");
+    #   }
+
+    #   else if(id(page)=="oled_ota_page")
+    #   {
+    #     float p = id(ota_progress);
+    #     if (p < 0 || p > 100) p = 0;
+    #     it.printf(05, 0, id(font1), "UPDATING: %0.0f%%", p);
+    #     it.rectangle(05, 20, it.get_width() - 10, 20);
+    #     int bar_width = (int)((it.get_width() - 12) * p / 100.0f);
+    #     it.filled_rectangle(6, 21, bar_width, 18);
+    #   }
+
+    #   else if(id(page)=="oled_error_page")
+    #   {
+    #     it.image(0, 0, id(alert));
+    #   }
+      
+    #   else 
+    #   {
+    #     it.clear();
+    #   }

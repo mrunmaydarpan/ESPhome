@@ -1,0 +1,30 @@
+globals:
+  - id: dryrun_state
+    type: bool
+    initial_value: 'false'
+
+  - id: dryrun_last_value
+    type: int
+    initial_value: '0'
+
+  - id: dryrun_flag
+    type: bool
+    initial_value: 'false'
+    restore_value: true
+
+interval:
+  - interval: $dryrun_interval
+    id: dryrun_check_timer
+    startup_delay: $dryrun_interval
+    then: 
+      - lambda: ESP_LOGI("DRYRUN", "Checking dryrun timer in every %s", "${dryrun_interval}");
+      - if:
+          condition:
+            and:
+              - switch.is_on: dryrun_id
+              - switch.is_on: pump_id
+          then:
+            - logger.log:
+                tag: DRYRUN
+                level: info
+                format: "Checking for DRYRUN"
