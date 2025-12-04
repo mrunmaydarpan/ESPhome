@@ -3,28 +3,41 @@ globals:
     type: bool
     initial_value: 'false'
 
-  - id: dryrun_last_value
-    type: int
-    initial_value: '0'
+  - id: dryrun_last_dist
+    type: float
 
-  - id: dryrun_flag
-    type: bool
-    initial_value: 'false'
-    restore_value: true
 
 interval:
   - interval: $dryrun_interval
     id: dryrun_check_timer
     startup_delay: $dryrun_interval
     then: 
-      - lambda: ESP_LOGI("DRYRUN", "Checking dryrun timer in every %s", "${dryrun_interval}");
+      - lambda: |-
+          if(id(pump_id).state)
+          {
+            ESP_LOGW("DRYRUN", "Checking dryrun timer in every %s", "$dryrun_interval");
+          } 
+          else
+          {
+            id(dryrun_check_timer).stop_poller();
+          }
       - if:
           condition:
             and:
               - switch.is_on: dryrun_id
               - switch.is_on: pump_id
           then:
-            - logger.log:
-                tag: DRYRUN
-                level: info
-                format: "Checking for DRYRUN"
+            - lambda: |-
+                ESP_LOGI("DRYRUN", "Checking for Dryrun >> current: %.0f cm | last: %.0f cm", id(sensor_id).state, id(dryrun_last_dist));
+                if(id(sensor_id).state >= id(dryrun_last_dist) || isnan(id(dryrun_last_dist)))
+                {
+                  ESP_LOGE("DRYRUN", "Dryrun detected, turning off pump");
+                  id(dryrun_last_dist) = id(sensor_id).state;
+                  
+                  id(oled_dryrun_page).show();
+                  id(pump_id).turn_off();
+                }
+                else
+                {
+                  id(dryrun_last_dist) = id(sensor_id).state;
+                }

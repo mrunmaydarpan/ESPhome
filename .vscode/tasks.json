@@ -10,6 +10,16 @@
                 "isDefault": true
             },
             "problemMatcher": []
+        },
+        {
+            "label": "compile ESPHome",
+            "type": "shell",
+            "command": "esphome compile wtlc.yaml",
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            },
+            "problemMatcher": []
         }
     ]
 }

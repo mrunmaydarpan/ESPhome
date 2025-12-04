@@ -78,21 +78,23 @@ interval:
             - binary_sensor.template.publish:
                 id: sensor_state_id
                 state: true
-            - logger.log:
-                tag: SENSOR
-                level: error
-                format: "sensor error {%s}"
-                args:
-                  [
-                    '(isnan(id(sensor_id).state))? "cable or sensor issue" : "sensor face blocked"',
-                  ]
+            - lambda: |-
+                ESP_LOGE("SENSOR", "Sensor %s", isnan(id(sensor_id).state)? "cable or sensor issue" : "sensor face blocked");
             - display.page.show: oled_error_page
           else:
             - binary_sensor.template.publish:
                 id: sensor_state_id
                 state: false
             # - lambda: id(page) = "oled_level_page";
-            - display.page.show: oled_level_page
+            - lambda: |-
+                if(id(dryrun_state_id).state)
+                {
+                  id(oled_dryrun_page).show();
+                }
+                else
+                {
+                  id(oled_level_page).show();
+                }
             - logger.log:
                 tag: SENSOR
                 level: info
