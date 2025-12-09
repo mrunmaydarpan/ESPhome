@@ -35,6 +35,7 @@ interval:
                   id(dryrun_state) = true;
                   id(oled_dryrun_page).show();
                   id(pump_id).turn_off();
+                  id(pump_last_reason_id).publish_state("dryrun");
                 }
                 else
                 {
