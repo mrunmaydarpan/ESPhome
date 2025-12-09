@@ -1,17 +1,16 @@
 globals:
   - id: dryrun_state
     type: bool
-    initial_value: 'false'
+    initial_value: "false"
 
   - id: dryrun_last_dist
     type: float
-
 
 interval:
   - interval: $dryrun_interval
     id: dryrun_check_timer
     startup_delay: $dryrun_interval
-    then: 
+    then:
       - lambda: |-
           if(id(pump_id).state)
           {
@@ -33,7 +32,7 @@ interval:
                 {
                   ESP_LOGE("DRYRUN", "Dryrun detected, turning off pump");
                   id(dryrun_last_dist) = id(sensor_id).state;
-                  
+                  id(dryrun_state) = true;
                   id(oled_dryrun_page).show();
                   id(pump_id).turn_off();
                 }

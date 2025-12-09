@@ -16,7 +16,7 @@ esphome:
         - lambda: |-
             pinMode(${relay_1_pin}, OUTPUT);
             pinMode(${led_pin}, OUTPUT);
-        # - component.suspend: dryrun_check_timer    
+        # - component.suspend: dryrun_check_timer
 
     - priority: -100
       then:
@@ -35,21 +35,21 @@ esp8266:
 
 # debug:
 api:
-  on_client_connected: 
-    then: 
+  on_client_connected:
+    then:
       - text_sensor.template.publish:
           id: restart_reason_id
-          state: !lambda 'return ESP.getResetReason().c_str();'
-      
+          state: !lambda "return ESP.getResetReason().c_str();"
+
 # ota:
-    
+
 wifi:
   ssid: !secret wifi_ssid
   password: !secret wifi_password
   min_auth_mode: WPA
   ap: {}
   fast_connect: true
-  manual_ip: 
+  manual_ip:
     static_ip: 192.168.0.129
     gateway: 192.168.0.1
     subnet: 255.255.255.0
@@ -86,7 +86,7 @@ packages:
 globals:
   - id: var_sensor_state
     type: bool
-    initial_value: 'false'
+    initial_value: "false"
 
   # - id: ota_inProgress
   #   type: bool
@@ -117,7 +117,6 @@ text_sensor:
     update_interval: never
     # lambda: return { ESP.getResetReason().c_str() };
 
-      
 #########################################################################################
 
 # output:
@@ -189,9 +188,9 @@ sensor:
     entity_category: "diagnostic"
     # update_interval: 1s
     filters:
-      - throttle: 100ms
+      - throttle: 500ms
       # - timeout: 5s
-    on_value: 
+    on_value:
       then:
         - component.update: water_level_id
         - lambda: |-
@@ -237,13 +236,13 @@ sensor:
           - logger.log:
               tag: "water_level"
               level: warn
-              format: "Water level above stop threshold, turning OFF pump"          
+              format: "Water level above stop threshold, turning OFF pump"
 
 #########################################################################################
 
 binary_sensor:
   - platform: gpio
-    pin: 
+    pin:
       number: $mode_pin
       mode: INPUT_PULLUP
       inverted: True
@@ -258,10 +257,9 @@ binary_sensor:
       number: $button_pin
       mode: INPUT_PULLUP
       inverted: True
-    on_press: 
+    on_press:
       then:
         - switch.toggle: pump_id
-        - lambda: id(dryrun_state) = false;
 
   - platform: template
     id: sensor_state_id
@@ -284,7 +282,7 @@ binary_sensor:
 
 #########################################################################################
 
-switch:    
+switch:
   - platform: template
     id: pump_id
     name: Pump
@@ -292,30 +290,34 @@ switch:
     optimistic: true
     restore_mode: RESTORE_DEFAULT_OFF
     on_turn_off:
-      - lambda: |- 
+      - lambda: |-
           digitalWrite($relay_1_pin, LOW);
           digitalWrite($led_pin, LOW);
       - component.suspend: dryrun_check_timer
       - lambda: ESP_LOGW("DRYRUN", "Timer suspended");
-    
+
     on_turn_on:
       then:
-        - lambda: |-
-            ESP_LOGW("PUMP", "checking logic to turn pump on");
         - if:
             condition:
-              - lambda: return id(sensor_id).state > ($full_tank_distance + 40);
+              and:
+                - lambda: return id(sensor_id).state > ($full_tank_distance + 40);
+                - lambda: return id(dryrun_state) == false;
             then:
               - lambda: |-
                   digitalWrite($relay_1_pin, HIGH);
                   digitalWrite($led_pin, HIGH);
-                  ESP_LOGW("PUMP", "pump on");
+                  ESP_LOGI("PUMP", "pump on");
                   ESP_LOGW("DRYRUN", "Timer resumed");
                   id(dryrun_last_dist) = id(sensor_id).state;
               - delay: $dryrun_interval
               - component.resume: dryrun_check_timer
-
             else:
+              - globals.set:
+                  id: dryrun_state
+                  value: "false"
+              - display.page.show: oled_level_page
+              - light.turn_off: led_id
               - delay: 1s
               - switch.turn_off: pump_id
               - lambda: ESP_LOGW("PUMP", "pump can't be turned on");
@@ -329,7 +331,7 @@ switch:
     entity_category: config
     on_turn_on:
       then:
-        - if: 
+        - if:
             condition:
               lambda: return id(water_level_id).state < id(start_pump_id).state;
             then:
@@ -341,4 +343,13 @@ switch:
     name: DryRun
     icon: mdi:water-remove
     restore_mode: RESTORE_DEFAULT_OFF
-    entity_category: 'config'
+    entity_category: "config"
+
+interval:
+  - interval: 500ms
+    then:
+      lambda: |-
+        if(id(dryrun_state) || id(sensor_state_id).state)
+        {
+          digitalWrite($led_pin, !digitalRead($led_pin));
+        }

@@ -79,7 +79,7 @@ interval:
                 id: sensor_state_id
                 state: true
             - lambda: |-
-                ESP_LOGE("SENSOR", "Sensor %s", isnan(id(sensor_id).state)? "cable or sensor issue" : "sensor face blocked");
+                ESP_LOGE("SENSOR", "Sensor %s", isnan(id(sensor_id).state)? "cable or sensor issue" : "face blocked");
             - display.page.show: oled_error_page
           else:
             - binary_sensor.template.publish:
@@ -87,7 +87,7 @@ interval:
                 state: false
             # - lambda: id(page) = "oled_level_page";
             - lambda: |-
-                if(id(dryrun_state_id).state)
+                if(id(dryrun_state))
                 {
                   id(oled_dryrun_page).show();
                 }
@@ -98,4 +98,5 @@ interval:
             - logger.log:
                 tag: SENSOR
                 level: info
-                format: "sensor ok"
+                format: "sensor ok >> %0.0f cm"
+                args: [ 'id(sensor_id).state' ]

@@ -1,5 +1,6 @@
 i2c:
-  frequency: 100kHz
+  frequency: 400kHz
+  scan: false
 
 esphome:
   on_boot:
@@ -19,7 +20,7 @@ ota:
             id(oled_id).update();
             // id(page) = "oled_ota_page";
         - display.page.show: oled_ota_page
-     
+
 image:
   defaults:
     type: binary
@@ -44,7 +45,7 @@ globals:
     type: bool
     restore_value: no
     initial_value: "false"
- 
+
   # - id: page
   #   type: std::string
   #   restore_value: no
@@ -68,7 +69,7 @@ display:
     model: "SSD1306 128x64"
     id: oled_id
     address: 0x3C
-    # update_interval: 5s
+    update_interval: 2s
     pages:
       - id: oled_splash_page
         lambda: it.image(0, 0, id(logo));
@@ -95,10 +96,9 @@ display:
       - id: oled_dryrun_page
         lambda: it.image(0, 0, id(dryrun));
 
-
     # lambda: |-
     #   if(id(page)=="oled_splash_page")
-    #   {          
+    #   {
     #     if(!id(splash_flag))
     #     {
     #       it.image(0, 0, id(logo));
@@ -127,8 +127,8 @@ display:
     #   {
     #     it.image(0, 0, id(alert));
     #   }
-      
-    #   else 
+
+    #   else
     #   {
     #     it.clear();
     #   }
