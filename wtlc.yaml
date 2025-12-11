@@ -21,18 +21,16 @@ esphome:
     - priority: -100
       then:
         - delay: 3s
-        - binary_sensor.template.publish:
-            id: sensor_state_id
-            state: false
         - lambda: |-
+            // Sync pump_state with the actual restored switch state
+            id(sensor_state_id).publish_state(false);
+            id(pump_state) = id(pump_id).state;
             if(id(pump_state))
             {
-              id(pump_id).turn_on();
               id(pump_last_reason_id).publish_state("restored_on");
             }
             else
             {
-              id(pump_id).turn_off();
               id(pump_last_reason_id).publish_state("restored_off");
               id(dryrun_check_timer).stop_poller();
             }
@@ -238,20 +236,22 @@ sensor:
     on_value_range:
       - below: !lambda return id(start_pump_id).state;
         then:
-          - logger.log:
-              tag: "water_level"
-              level: warn
-              format: "Water level below start threshold, turning ON pump."
           - if:
               condition:
                 and:
                   - switch.is_on: mode_id
                   - switch.is_off: pump_id
+                  - binary_sensor.is_off: sensor_state_id
+                  - binary_sensor.is_off: dryrun_state_id
               then:
                 - switch.turn_on: pump_id
                 - text_sensor.template.publish:
                     id: pump_last_reason_id
                     state: "Auto Start"
+                - logger.log:
+                    tag: "water_level"
+                    level: warn
+                    format: "Water level below start threshold, turning pump ON."
 
       - above: !lambda return id(stop_pump_id).state;
         then:

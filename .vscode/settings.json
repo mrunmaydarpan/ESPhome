@@ -1,0 +1,12 @@
+{
+    "files.associations": {
+        "**/ESPhome/**/*.yml": "esphome",
+        "**/ESPhome/**/*.yaml": "esphome",
+    },
+    "editor.autoIndentOnPaste": true,
+    "editor.experimentalGpuAcceleration": "on",
+    "files.autoGuessEncoding": true,
+    "[yaml]": {
+        "editor.defaultFormatter": "redhat.vscode-yaml"
+    }
+}
