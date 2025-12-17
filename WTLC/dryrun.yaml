@@ -1,25 +1,22 @@
 globals:
-  - id: dryrun_state
-    type: bool
-    initial_value: "false"
-
   - id: dryrun_last_dist
     type: float
 
+  - id: last_dryrun_ts
+    type: unsigned long
+    initial_value: '0'
+
+binary_sensor:
+  - platform: template
+    id: dryrun_state_id
+    name: DryRun
+    device_class: problem
+    entity_category: diagnostic
+
 interval:
-  - interval: $dryrun_interval
+  - interval: 1s
     id: dryrun_check_timer
-    startup_delay: $dryrun_interval
     then:
-      - lambda: |-
-          if(id(pump_id).state)
-          {
-            ESP_LOGW("DRYRUN", "Checking dryrun timer in every %s", "$dryrun_interval");
-          } 
-          else
-          {
-            id(dryrun_check_timer).stop_poller();
-          }
       - if:
           condition:
             and:
@@ -27,18 +24,23 @@ interval:
               - switch.is_on: pump_id
           then:
             - lambda: |-
-                ESP_LOGI("DRYRUN", "Checking for Dryrun >> current: %.0f cm | last: %.0f cm", id(sensor_id).state, id(dryrun_last_dist));
-                if(id(sensor_id).state >= id(dryrun_last_dist) || isnan(id(dryrun_last_dist)))
+                unsigned long now = millis();
+                if(now - id(last_dryrun_ts) >= 60000)
                 {
-                  ESP_LOGE("DRYRUN", "Dryrun detected, turning off pump");
-                  id(dryrun_last_dist) = id(sensor_id).state;
-                  id(dryrun_state) = true;
-                  id(oled_dryrun_page).show();
-                  id(pump_id).turn_off();
-                  id(pump_last_reason_id).publish_state("dryrun");
-                  id(mode_id).turn_off();
-                }
-                else
-                {
-                  id(dryrun_last_dist) = id(sensor_id).state;
-                }
+                  id(last_dryrun_ts) = now;
+                  ESP_LOGI("DRYRUN", "Checking for Dryrun >> current: %.0f cm | last: %.0f cm", id(sensor_id).state, id(dryrun_last_dist));
+                  if(id(sensor_id).state >= id(dryrun_last_dist) || isnan(id(dryrun_last_dist)))
+                  {
+                    ESP_LOGE("DRYRUN", "Dryrun detected, turning off pump");
+                    id(oled_dryrun_page).show();
+                    id(dryrun_last_dist) = id(sensor_id).state;
+                    id(dryrun_state_id).publish_state(true);
+                    id(pump_id).turn_off();
+                    id(pump_last_reason_id).publish_state("dryrun");
+                    id(mode_id).turn_off();
+                  }
+                  else
+                  {
+                    id(dryrun_last_dist) = id(sensor_id).state;
+                  }
+                }                

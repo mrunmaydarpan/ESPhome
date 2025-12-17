@@ -1,0 +1,35 @@
+esphome:
+  name: test
+
+esp8266:
+  board: d1_mini
+
+logger:
+api:
+ota:
+  - platform: esphome
+    
+wifi:
+  ssid: "home"
+  password: "darkmaster"
+  ap: {}
+  fast_connect: true
+  min_auth_mode: WPA
+
+captive_portal:    
+web_server:
+  version: 3
+  
+uart:
+  baud_rate: 9600
+  rx_pin: D2
+  id: uart_id
+
+sensor:
+  - platform: a02yyuw
+    id: sensor_id
+    name: Distance test
+    filters: 
+      - throttle: 
+          seconds: 1
+      - multiply: 0.1

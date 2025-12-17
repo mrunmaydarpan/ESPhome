@@ -1,0 +1,54 @@
+switch:
+  - platform: template
+    id: pump_id
+    name: Pump
+    icon: mdi:pump
+    optimistic: true
+    restore_mode: RESTORE_DEFAULT_OFF
+
+    on_turn_on:
+      then:
+        - lambda: |-
+            id(last_dryrun_ts) = millis();
+            digitalWrite($relay_1_pin, HIGH);
+            digitalWrite($led_pin, HIGH);
+            id(dryrun_state_id).publish_state(false);
+    turn_on_action:
+      then:
+        - lambda: |-
+            id(pump_last_reason_id).publish_state("user");
+
+    on_turn_off:
+      then:
+        - lambda: |-
+            digitalWrite($relay_1_pin, LOW);
+            digitalWrite($led_pin, LOW);
+            
+            // id(dryrun_state_id).publish_state(false);
+    # turn_off_action:
+    #   then:
+    #     - lambda: |-
+    #         id(pump_last_reason_id).publish_state("user");
+
+  - platform: template
+    id: mode_id
+    name: Automatic Mode
+    icon: mdi:flash-auto
+    optimistic: True
+    restore_mode: RESTORE_DEFAULT_OFF
+    entity_category: config
+    on_turn_on:
+      lambda: |-
+        if(id(water_level_id).state <= id(start_pump_id).state)
+        {
+          id(pump_id).turn_on();
+          id(pump_last_reason_id).publish_state("Auto Start");
+        }
+
+  - platform: template
+    id: dryrun_id
+    optimistic: True
+    name: DryRun
+    icon: mdi:water-remove
+    restore_mode: RESTORE_DEFAULT_OFF
+    entity_category: "config"
