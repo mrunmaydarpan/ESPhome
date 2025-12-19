@@ -9,7 +9,6 @@ binary_sensor:
     name: Sensor
     device_class: problem
     entity_category: diagnostic
-
 sensor:
   # - platform: template
   - platform: a02yyuw
@@ -25,11 +24,11 @@ sensor:
       - multiply: 0.1
     on_value:
       then:
+        # Update the timestamp of the last valid sensor reading
         - lambda: |-
             id(last_sensor_ts) = millis();
-            id(water_level_id).publish_state(id(sensor_id).state);
-            ESP_LOGD("SENSOR", "Distance: %.0f cm | Level: %.0f%%", id(sensor_id).state, id(water_level_id).state);
-    on_value_range: 
+            id(sensor_state_id).publish_state(false);
+    on_value_range:
       below: $full_tank_distance
       then:
         - if:
@@ -43,22 +42,28 @@ sensor:
                   format: "Level exceeds 100%% (Distance: %.0f cm), turning pump OFF"
                   args: [id(sensor_id).state]
 
-
   - platform: template
     id: water_level_id
     accuracy_decimals: 0
     unit_of_measurement: "%"
-    # update_interval: 1s
+    update_interval: 1s
     icon: mdi:water-percent
     name: Level
     filters:
       - calibrate_linear:
-        - ${full_tank_distance} -> 100.0
-        - ${tank_height} -> 0.0
+          - ${full_tank_distance} -> 100.0
+          - ${tank_height} -> 0.0
       - clamp:
           min_value: 0.0
           max_value: 100.0
           ignore_out_of_range: False
+
+    lambda: |-
+      if (id(sensor_id).has_state()) {
+        ESP_LOGD("SENSOR", "Distance: %.0f cm | Level: %.0f%%", id(sensor_id).state, id(water_level_id).state);
+        return id(sensor_id).state;
+      }
+      return {}; // Return NAN (Not a Number) if sensor has no state
 
     #   - median: # Smooth out noise
     #       window_size: 7
@@ -100,48 +105,18 @@ sensor:
                     id: pump_last_reason_id
                     state: "Auto Stop"
 
-
 interval:
   - interval: $sensor_check_interval
     then:
+      # This lambda checks if the sensor has stopped sending data.
+      # It compares the current time with the timestamp of the last received value.
+      # If more than 5 seconds have passed, it assumes a sensor error.
       - lambda: |-
           unsigned long now = millis();
-          if(now - id(last_sensor_ts) > 5000)
+          if (id(last_sensor_ts) != 0 && (now - id(last_sensor_ts) > 5000))
           {
             ESP_LOGE("SENSOR", "Sensor ERROR");
-            id(oled_error_page).show();
             id(sensor_state_id).publish_state(true);
             id(pump_id).turn_off();
-            id(pump_last_reason_id).publish_state("sensor error");
-            id(last_sensor_ts) = now;
+            id(pump_last_reason_id).publish_state("Sensor Error");
           }
-          else
-          {
-            id(sensor_state_id).publish_state(false);
-          }
-      # - component.update: oled_id
-      # - if:
-      #     condition:
-      #       or:
-      #         - lambda: return isnan(id(sensor_id).state);
-      #         - lambda: return id(sensor_id).state <= 0;
-      #         - lambda: |-
-      #             unsigned long now = millis();
-      #             return (now - id(last_sensor_ts) > 5000);
-      #     then:
-      #       - lambda: |-
-      #           id(last_sensor_ts) = millis();
-      #           ESP_LOGE("SENSOR", "Sensor ERROR");
-      #           id(sensor_state_id).publish_state(true);
-      #       # - display.page.show: oled_error_page
-      #     else:
-      #       - lambda: |-
-      #           id(sensor_state_id).publish_state(false);
-      #           if(id(dryrun_state))
-      #           {
-      #             id(oled_dryrun_page).show();
-      #           }
-      #           else
-      #           {
-      #             id(oled_level_page).show();
-      #           }

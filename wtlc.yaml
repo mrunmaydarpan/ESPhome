@@ -1,7 +1,7 @@
 substitutions:
   tank_height: 100
   full_tank_distance: 10
-  dryrun_interval: 1min
+  dryrun_interval: 5 # minutes
   sensor_check_interval: 10s
 
 esphome:
@@ -166,10 +166,6 @@ button:
 
 #########################################################################################
 
-#sensors
-
-#########################################################################################
-
 binary_sensor:
   - platform: gpio
     pin:
@@ -213,3 +209,6 @@ interval:
           {
             digitalWrite($led_pin, digitalRead($relay_1_pin));
           }
+
+
+

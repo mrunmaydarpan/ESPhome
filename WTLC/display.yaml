@@ -22,7 +22,7 @@ ota:
             id(ota_progress) = x;  // store progress percentage
             id(oled_id).update();
         - display.page.show: oled_ota_page
-    on_end: 
+    on_end:
       then:
         - logger.log: "OTA completed"
         - lambda: id(oled_id)->update();
@@ -82,12 +82,12 @@ display:
 
       - id: oled_ota_page
         lambda: |-
-            float p = id(ota_progress);
-            if (p < 0 || p > 100) p = 0;
-            it.printf(05, 0, id(font1), "UPDATING: %0.0f%%", p);
-            it.rectangle(05, 20, it.get_width() - 10, 20);
-            int bar_width = (int)((it.get_width() - 12) * p / 100.0f);
-            it.filled_rectangle(6, 21, bar_width, 18);
+          float p = id(ota_progress);
+          if (p < 0 || p > 100) p = 0;
+          it.printf(05, 0, id(font1), "UPDATING: %0.0f%%", p);
+          it.rectangle(05, 20, it.get_width() - 10, 20);
+          int bar_width = (int)((it.get_width() - 12) * p / 100.0f);
+          it.filled_rectangle(6, 21, bar_width, 18);
 
       - id: oled_error_page
         lambda: it.image(0, 0, id(alert));
