@@ -209,6 +209,3 @@ interval:
           {
             digitalWrite($led_pin, digitalRead($relay_1_pin));
           }
-
-
-
