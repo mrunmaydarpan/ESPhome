@@ -25,7 +25,7 @@ interval:
           then:
             - lambda: |-
                 unsigned long now = millis();
-                if(now - id(last_dryrun_ts) >= 60000 * $dryrun_interval)
+                if(now - id(last_dryrun_ts) >= 60000 * id(dryrun_interval_id).state)
                 {
                   id(last_dryrun_ts) = now;
                   ESP_LOGI("DRYRUN", "Checking for Dryrun >> current: %.0f cm | last: %.0f cm", id(sensor_id).state, id(dryrun_last_dist));

@@ -1,7 +1,7 @@
 substitutions:
-  tank_height: 100
+  tank_height: 96
   full_tank_distance: 10
-  dryrun_interval: 5 # minutes
+  # dryrun_interval: 3 # minutes
   sensor_check_interval: 10s
 
 esphome:
@@ -44,15 +44,10 @@ api:
 # ota:
 
 wifi:
-  ssid: !secret wifi_ssid
-  password: !secret wifi_password
+  ssid: Pihu
+  password: Pihu@2020
   min_auth_mode: WPA
   ap: {}
-  fast_connect: true
-  manual_ip:
-    static_ip: 192.168.0.129
-    gateway: 192.168.0.1
-    subnet: 255.255.255.0
 
 captive_portal:
 # web_server:
@@ -136,7 +131,7 @@ number:
     optimistic: true
     restore_value: yes
     min_value: 10
-    max_value: 50
+    max_value: 70
     step: 5
     unit_of_measurement: "%"
     icon: "mdi:water-check"
@@ -148,12 +143,25 @@ number:
     id: stop_pump_id
     optimistic: true
     restore_value: True
-    min_value: 70
+    min_value: 75
     max_value: 100
     step: 5
     unit_of_measurement: "%"
     icon: "mdi:water-check"
     initial_value: 100
+    entity_category: "config"
+
+  - platform: template
+    name: "Dry Run Interval"
+    id: dryrun_interval_id
+    optimistic: true
+    restore_value: yes
+    min_value: 1
+    max_value: 10
+    step: 1
+    unit_of_measurement: "min"
+    icon: "mdi:timer-sand"
+    initial_value: 1
     entity_category: "config"
 
 #########################################################################################

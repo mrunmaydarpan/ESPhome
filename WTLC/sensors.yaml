@@ -57,6 +57,10 @@ sensor:
           min_value: 0.0
           max_value: 100.0
           ignore_out_of_range: False
+      - median: # Smooth out noise
+          window_size: 7
+          send_every: 3
+          send_first_at: 1
 
     lambda: |-
       if (id(sensor_id).has_state()) {
@@ -65,15 +69,12 @@ sensor:
       }
       return {}; // Return NAN (Not a Number) if sensor has no state
 
-    #   - median: # Smooth out noise
-    #       window_size: 7
-    #       send_every: 3
-    #       send_first_at: 1
+
 
     on_value_range:
       - below: !lambda return id(start_pump_id).state;
         then:
-          - if:
+          - if: 
               condition:
                 and:
                   - switch.is_on: mode_id
