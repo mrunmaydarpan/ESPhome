@@ -1,8 +1,8 @@
 substitutions:
-  tank_height: 96
-  full_tank_distance: 10
+  tank_height: 110
+  full_tank_distance: 15
   # dryrun_interval: 3 # minutes
-  sensor_check_interval: 10s
+  # sensor_check_interval: 5s
 
 esphome:
   name: wtlc
@@ -16,14 +16,22 @@ esphome:
         - lambda: |-
             pinMode(${relay_1_pin}, OUTPUT);
             pinMode(${led_pin}, OUTPUT);
+        - display.page.show: oled_splash_page
+        - delay: 3s
         - wait_until:
-            - lambda: return !isnan(id(sensor_id).state);
-        - binary_sensor.template.publish:
-            id: sensor_state_id
-            state: false
-        - binary_sensor.template.publish:
-            id: dryrun_state_id
-            state: false
+            condition:
+              lambda: return !isnan(id(sensor_id).state);
+            timeout: 10s
+        - display.page.show: oled_level_page
+
+        # - wait_until:
+        #     - lambda: return !isnan(id(sensor_id).state);
+        # - binary_sensor.template.publish:
+        #     id: sensor_state_id
+        #     state: false
+        # - binary_sensor.template.publish:
+        #     id: dryrun_state_id
+        #     state: false
 
 esp8266:
   board: esp12e
@@ -41,17 +49,32 @@ api:
           id: restart_reason_id
           state: !lambda "return ESP.getResetReason().c_str();"
 
-# ota:
+ota:
+  - platform: esphome
+    id: ota_id
+    on_progress:
+      then:
+        - lambda: |-
+            id(ota_progress) = x;  // store progress percentage
+            id(oled_id).update();
+        - display.page.show: oled_ota_page
+    on_end:
+      then:
+        - logger.log: "OTA completed"
+        - lambda: id(oled_id)->update();
 
 wifi:
-  ssid: Pihu
-  password: Pihu@2020
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
   min_auth_mode: WPA
   ap: {}
 
 captive_portal:
 # web_server:
 #   version: 3
+dashboard_import:
+  package_import_url: github://mrunmaydarpan/ESPhome/wtlc.yaml@dev
+  import_full_config: False
 
 logger:
   level: DEBUG
@@ -64,16 +87,40 @@ uart:
   tx_pin: $stx_pin
   id: uart_id
 
+i2c:
+  frequency: 100khz
+  scan: false
+
 packages:
   pins: !include WTLC/pins.yaml
-  display: !include WTLC/display.yaml
-  sensors: !include WTLC/sensors.yaml
-  dryrun: !include WTLC/dryrun.yaml
+  # display: !include WTLC/display.yaml
+  # sensors: !include WTLC/sensors.yaml
+  # dryrun: !include WTLC/dryrun.yaml
   # intervals: !include WTLC/intervals.yaml
-  switches: !include WTLC/switches.yaml
+  # switches: !include WTLC/switches.yaml
   # binary_sensor: !include WTLC/binary_sensors.yaml
 
 #########################################################################################
+
+globals:
+  - id: dryrun_last_dist
+    type: float
+
+  - id: last_dryrun_ts
+    type: unsigned long
+    initial_value: "0"
+  - id: ota_progress
+    type: float
+    restore_value: no
+    initial_value: "0"
+
+  - id: splash_flag
+    type: bool
+    restore_value: no
+    initial_value: "false"
+  - id: last_sensor_ts
+    type: unsigned long
+    initial_value: "0"
 
 light:
   - platform: status_led
@@ -85,10 +132,10 @@ light:
 #########################################################################################
 
 text_sensor:
-  # - platform: wifi_info
-  #   ip_address:
-  #     name: IP
-  #     icon: mdi:ip
+  - platform: wifi_info
+    ip_address:
+      name: IP
+      icon: mdi:ip
 
   - platform: template
     name: "Restart Reason"
@@ -121,6 +168,61 @@ text_sensor:
 #   output: rtttl_out
 #   id: buzz_id
 #   gain: 10%
+
+#########################################################################################
+
+font:
+  - file: "gfonts://Roboto"
+    id: font1
+    size: 14
+  - file: "gfonts://Roboto"
+    id: font2
+    size: 45
+  - file: "gfonts://Roboto"
+    id: font3
+    size: 24
+image:
+  defaults:
+    type: binary
+    resize: 128x64
+  images:
+    - file: "WTLC/logo.png"
+      id: logo
+
+    - file: "WTLC/alert.png"
+      id: alert
+
+    - file: "WTLC/dryrun.png"
+      id: dryrun
+display:
+  - platform: ssd1306_i2c
+    model: "SSD1306 128x64"
+    id: oled_id
+    address: 0x3C
+    pages:
+      - id: oled_splash_page
+        lambda: it.image(0, 0, id(logo));
+
+      - id: oled_level_page
+        lambda: |-
+          it.printf(10, 0, id(font1), "%s", id(mode_id).state? "AUTO" : "MANUAL");
+          it.printf(108, 13, id(font2), TextAlign::RIGHT, "%0.0f", id(water_level_id).state);
+          it.printf(110, 32, id(font3), "%%");
+
+      - id: oled_ota_page
+        lambda: |-
+          float p = id(ota_progress);
+          if (p < 0 || p > 100) p = 0;
+          it.printf(05, 0, id(font1), "UPDATING: %0.0f%%", p);
+          it.rectangle(05, 20, it.get_width() - 10, 20);
+          int bar_width = (int)((it.get_width() - 12) * p / 100.0f);
+          it.filled_rectangle(6, 21, bar_width, 18);
+
+      - id: oled_error_page
+        lambda: it.image(0, 0, id(alert));
+
+      - id: oled_dryrun_page
+        lambda: it.image(0, 0, id(dryrun));
 
 #########################################################################################
 
@@ -188,6 +290,12 @@ binary_sensor:
             id: dryrun_state_id
             state: false
 
+  - platform: template
+    id: dryrun_state_id
+    name: DryRun
+    device_class: problem
+    entity_category: diagnostic
+
   - platform: gpio
     id: pump_button_id
     pin:
@@ -198,16 +306,181 @@ binary_sensor:
       then:
         - switch.toggle: pump_id
 
+  - platform: template
+    id: sensor_state_id
+    name: Sensor
+    device_class: problem
+    entity_category: diagnostic
+
 #########################################################################################
 
+sensor:
+  # - platform: template
+  - platform: a02yyuw
+    name: "Distance"
+    id: sensor_id
+    uart_id: uart_id
+    unit_of_measurement: cm
+    accuracy_decimals: 0
+    entity_category: "diagnostic"
+    device_class: "distance"
+    filters:
+      - throttle: 1s
+      - multiply: 0.1
+      - sliding_window_moving_average:
+          window_size: 5
+          send_every: 1
+    on_value:
+      then:
+        # Update the timestamp of the last valid sensor reading
+        - lambda: |-
+            id(last_sensor_ts) = millis();
+            id(sensor_state_id).publish_state(false);
+    on_value_range:
+      below: $full_tank_distance
+      then:
+        - if:
+            condition:
+              - switch.is_on: pump_id
+            then:
+              - switch.turn_off: pump_id
+              - logger.log:
+                  tag: "SENSOR"
+                  level: warn
+                  format: "Level exceeds 100%% (Distance: %.0f cm), turning pump OFF"
+                  args: [id(sensor_id).state]
+
+  - platform: template
+    id: water_level_id
+    accuracy_decimals: 0
+    unit_of_measurement: "%"
+    update_interval: 1s
+    icon: mdi:water-percent
+    name: Level
+    filters:
+      - calibrate_linear:
+          - ${full_tank_distance} -> 100.0
+          - ${tank_height} -> 0.0
+      - clamp:
+          min_value: 0.0
+          max_value: 100.0
+          ignore_out_of_range: False
+      - median: # Smooth out noise
+          window_size: 7
+          send_every: 3
+          send_first_at: 1
+      - sliding_window_moving_average: # Further stabilize percentage
+          window_size: 5
+          send_every: 1
+
+    lambda: |-
+      if (id(sensor_id).has_state()) {
+        ESP_LOGD("SENSOR", "Distance: %.0f cm | Level: %.0f%%", id(sensor_id).state, id(water_level_id).state);
+        return id(sensor_id).state;
+      }
+      return {}; // Return NAN (Not a Number) if sensor has no state
+
+    on_value_range:
+      - below: !lambda return id(start_pump_id).state;
+        then:
+          - if:
+              condition:
+                and:
+                  - switch.is_on: mode_id
+                  - switch.is_off: pump_id
+                  - binary_sensor.is_off: sensor_state_id
+                  - binary_sensor.is_off: dryrun_state_id
+              then:
+                - switch.turn_on: pump_id
+                - text_sensor.template.publish:
+                    id: pump_last_reason_id
+                    state: "Auto Start"
+                - logger.log:
+                    tag: "water_level"
+                    level: warn
+                    format: "Water level below start threshold, turning pump ON."
+
+      - above: !lambda return id(stop_pump_id).state;
+        then:
+          - if:
+              condition:
+                - switch.is_on: pump_id
+              then:
+                - switch.turn_off: pump_id
+                - logger.log:
+                    tag: "water_level"
+                    level: warn
+                    format: "Water level above stop threshold, turning OFF pump"
+                - text_sensor.template.publish:
+                    id: pump_last_reason_id
+                    state: "Auto Stop"
+
+#########################################################################################
+
+switch:
+  - platform: template
+    id: pump_id
+    name: Pump
+    icon: mdi:pump
+    optimistic: true
+    restore_mode: RESTORE_DEFAULT_OFF
+
+    on_turn_on:
+      then:
+        - lambda: |-
+            id(last_dryrun_ts) = millis();
+            digitalWrite($relay_1_pin, HIGH);
+            digitalWrite($led_pin, HIGH);
+            id(dryrun_state_id).publish_state(false);
+    turn_on_action:
+      then:
+        - lambda: |-
+            id(pump_last_reason_id).publish_state("user");
+
+    on_turn_off:
+      then:
+        - lambda: |-
+            digitalWrite($relay_1_pin, LOW);
+            digitalWrite($led_pin, LOW);
+
+            // id(dryrun_state_id).publish_state(false);
+    # turn_off_action:
+    #   then:
+    #     - lambda: |-
+    #         id(pump_last_reason_id).publish_state("user");
+
+  - platform: template
+    id: mode_id
+    name: Automatic Mode
+    icon: mdi:flash-auto
+    optimistic: True
+    restore_mode: RESTORE_DEFAULT_OFF
+    entity_category: config
+    on_turn_on:
+      lambda: |-
+        if(id(water_level_id).state <= id(start_pump_id).state)
+        {
+          id(pump_id).turn_on();
+          id(pump_last_reason_id).publish_state("Auto Start");
+        }
+
+  - platform: template
+    id: dryrun_id
+    optimistic: True
+    name: DryRun
+    icon: mdi:water-remove
+    restore_mode: RESTORE_DEFAULT_OFF
+    entity_category: "config"
+
 interval:
-  - interval: 500ms
+  - interval: 100ms
     then:
       - wait_until:
           condition:
-            - and:
-                # - lambda: return !isnan(id(sensor_id).state);
-                - api.connected:
+            and:
+              - lambda: return !isnan(id(sensor_id).state);
+              - api.connected:
+          timeout: 10s
       - lambda: |-
           if(id(dryrun_state_id).state || id(sensor_state_id).state)
           {
@@ -217,3 +490,86 @@ interval:
           {
             digitalWrite($led_pin, digitalRead($relay_1_pin));
           }
+
+  - interval: 1s
+    then:
+      - if:
+          condition:
+            and:
+              - switch.is_on: dryrun_id
+              - switch.is_on: pump_id
+          then:
+            - lambda: |-
+                unsigned long now = millis();
+                if(now - id(last_dryrun_ts) >= 60000 * id(dryrun_interval_id).state)
+                {
+                  id(last_dryrun_ts) = now;
+                  ESP_LOGI("DRYRUN", "Checking for Dryrun >> current: %.0f cm | last: %.0f cm", id(sensor_id).state, id(dryrun_last_dist));
+                  
+                  if(id(sensor_id).state >= id(dryrun_last_dist) || isnan(id(dryrun_last_dist)))
+                  {
+                    ESP_LOGE("DRYRUN", "Dryrun detected, turning off pump");
+                    id(oled_dryrun_page).show();
+                    id(dryrun_last_dist) = id(sensor_id).state;
+                    id(dryrun_state_id).publish_state(true);
+                    id(pump_id).turn_off();
+                    id(pump_last_reason_id).publish_state("dryrun");
+                    id(mode_id).turn_off();
+                  }
+                  else
+                  {
+                    id(dryrun_last_dist) = id(sensor_id).state;
+                  }
+                }
+      # This lambda checks if the sensor has stopped sending data.
+      # It compares the current time with the timestamp of the last received value.
+      # If more than 5 seconds have passed, it assumes a sensor error.
+      - lambda: |-
+          unsigned long now = millis();
+          // ESP_LOGI("sensor timer", "last_sensor_ts: %lu | now: %lu", id(last_sensor_ts), now);
+          if (id(last_sensor_ts) != 0 && now - id(last_sensor_ts) > 5000 || isnan(id(sensor_id).state))
+          {
+            ESP_LOGE("SENSOR", "Sensor ERROR");
+            id(sensor_state_id).publish_state(true);
+            id(pump_id).turn_off();
+            id(pump_last_reason_id).publish_state("Sensor Error");
+          }
+
+  - interval: 2s
+    startup_delay: 10s
+    id: display_update_timer
+    then:
+      - if:
+          condition:
+            binary_sensor.is_on: dryrun_state_id
+          then:
+            - if:
+                condition:
+                  - not:
+                      display.is_displaying_page: oled_dryrun_page
+                then:
+                  - display.page.show: oled_dryrun_page
+      - if:
+          condition:
+            and:
+              - binary_sensor.is_on: sensor_state_id
+              - binary_sensor.is_off: dryrun_state_id
+          then:
+            - if:
+                condition:
+                  - not:
+                      display.is_displaying_page: oled_error_page
+                then:
+                  - display.page.show: oled_error_page
+      - if:
+          condition:
+            and:
+              - binary_sensor.is_off: sensor_state_id
+              - binary_sensor.is_off: dryrun_state_id
+          then:
+            - if:
+                condition:
+                  - not:
+                      display.is_displaying_page: oled_level_page
+                then:
+                  - display.page.show: oled_level_page

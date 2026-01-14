@@ -69,8 +69,6 @@ sensor:
       }
       return {}; // Return NAN (Not a Number) if sensor has no state
 
-
-
     on_value_range:
       - below: !lambda return id(start_pump_id).state;
         then:
@@ -114,7 +112,8 @@ interval:
       # If more than 5 seconds have passed, it assumes a sensor error.
       - lambda: |-
           unsigned long now = millis();
-          if (id(last_sensor_ts) != 0 && (now - id(last_sensor_ts) > 5000))
+          // ESP_LOGI("sensor timer", "last_sensor_ts: %lu | now: %lu", id(last_sensor_ts), now);
+          if (id(last_sensor_ts) != 0 && (now - id(last_sensor_ts) > 5000) || isnan(id(sensor_id).state))
           {
             ESP_LOGE("SENSOR", "Sensor ERROR");
             id(sensor_state_id).publish_state(true);

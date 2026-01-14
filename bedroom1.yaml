@@ -11,9 +11,11 @@ substitutions:
 esphome:
   name: bedroom1
   friendly_name: Bedroom 1
-  comment: "MDtronix 4ch Smart Switch"
+  comment: "MDtronix 4ch (OLD)"
   on_boot:
-    switch.turn_on: switch_id
+    then:
+      - switch.turn_on: switch_id
+      
   project:
     name: "MDtronix.4ch-old"
     version: "1.0"
@@ -117,9 +119,14 @@ binary_sensor:
       - fan.toggle: fan_id
 
 text_sensor:
-  # - platform: debug
-  #   reset_reason:
-  #     name: "Reset Reason"         
+  - platform: template
+    name: "Restart Reason"
+    icon: mdi:restart
+    entity_category: diagnostic
+    id: restart_reason_id
+    update_interval: never
+    # lambda: return { ESP.getResetReason().c_str() };
+        
   - platform: wifi_info
     ip_address:
       name: IP

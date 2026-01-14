@@ -32,11 +32,20 @@ wifi:
   
 captive_portal:
 logger:
+  level: INFO
 api:
+mqtt:
+  broker: !secret mqtt_broker
+  username: !secret mqtt_user
+  password: !secret mqtt_password
+  discover_ip: False
+  discovery: false
+  id: mqtt_id
+  
 ota:
   - platform: esphome
-web_server:
-  version: 3
+# web_server:
+#   version: 3
 # debug:
 
 status_led:
