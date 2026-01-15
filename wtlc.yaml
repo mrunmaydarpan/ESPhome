@@ -98,6 +98,31 @@ i2c:
   frequency: 100khz
   scan: false
 
+time:
+  - platform: sntp
+    id: sntp_time
+    timezone: "IST-5:30" # Assuming IST based on local time +05:30
+    on_time:
+      - seconds: 0
+        minutes: 0
+        hours: 6
+        then:
+          - if:
+              condition:
+                and:
+                  - switch.is_on: safety_mode_id
+                  - switch.is_on: mode_id
+                  - switch.is_off: pump_id
+                  - binary_sensor.is_off: sensor_state_id
+                  - binary_sensor.is_off: dryrun_state_id
+                  - lambda: return id(water_level_id).state <= id(start_pump_id).state;
+              then:
+                - switch.turn_on: pump_id
+                - lambda: |-
+                    id(pump_last_reason_persisted) = "Auto Start (6AM)";
+                    id(pump_last_reason_id).publish_state("Auto Start (6AM)");
+                - logger.log: "Morning resumption: Starting pump as level is low."
+
 packages:
   pins: !include WTLC/pins.yaml
   # display: !include WTLC/display.yaml
@@ -428,6 +453,10 @@ sensor:
                   - switch.is_off: pump_id
                   - binary_sensor.is_off: sensor_state_id
                   - binary_sensor.is_off: dryrun_state_id
+                  - lambda: |-
+                      auto now = id(sntp_time).now();
+                      bool is_quiet_hours = id(safety_mode_id).state && now.is_valid() && (now.hour >= 23 || now.hour < 6);
+                      return !is_quiet_hours;
               then:
                 - switch.turn_on: pump_id
                 - lambda: |-
@@ -466,9 +495,6 @@ sensor:
       }
       return 0.0f;
 
-
-#########################################################################################
-
 #########################################################################################
 
 script:
@@ -503,7 +529,11 @@ switch:
             digitalWrite($led_pin, HIGH);
             id(dryrun_persisted) = false;
             id(dryrun_state_id).publish_state(false);
-        - script.execute: pump_safety_timeout
+        - if:
+            condition:
+              switch.is_on: safety_mode_id
+            then:
+              - script.execute: pump_safety_timeout
     turn_on_action:
       then:
         - lambda: |-
@@ -530,7 +560,9 @@ switch:
     entity_category: config
     on_turn_on:
       lambda: |-
-        if(id(water_level_id).state <= id(start_pump_id).state)
+        auto now = id(sntp_time).now();
+        bool is_quiet_hours = id(safety_mode_id).state && now.is_valid() && (now.hour >= 23 || now.hour < 6);
+        if(!is_quiet_hours && id(water_level_id).state <= id(start_pump_id).state)
         {
           id(pump_id).turn_on();
           id(pump_last_reason_persisted) = "Auto Start";
@@ -544,6 +576,14 @@ switch:
     icon: mdi:water-remove
     restore_mode: RESTORE_DEFAULT_OFF
     entity_category: "config"
+
+  - platform: template
+    id: safety_mode_id
+    name: Safety Mode
+    icon: mdi:shield-check
+    optimistic: True
+    restore_mode: RESTORE_DEFAULT_ON
+    entity_category: config
 
 interval:
   - interval: 100ms
