@@ -23,6 +23,13 @@ esphome:
               lambda: return !isnan(id(sensor_id).state);
             timeout: 10s
         - display.page.show: oled_level_page
+        - if:
+            condition:
+              lambda: 'return id(pump_last_reason_persisted) != "";'
+            then:
+              - text_sensor.template.publish:
+                  id: pump_last_reason_id
+                  state: !lambda "return id(pump_last_reason_persisted);"
 
         # - wait_until:
         #     - lambda: return !isnan(id(sensor_id).state);
@@ -109,6 +116,16 @@ globals:
   - id: last_dryrun_ts
     type: unsigned long
     initial_value: "0"
+
+  - id: dryrun_persisted
+    type: bool
+    restore_value: yes
+    initial_value: "false"
+
+  - id: pump_last_reason_persisted
+    type: std::string
+    restore_value: yes
+    initial_value: '""'
   - id: ota_progress
     type: float
     restore_value: no
@@ -119,6 +136,10 @@ globals:
     restore_value: no
     initial_value: "false"
   - id: last_sensor_ts
+    type: unsigned long
+    initial_value: "0"
+
+  - id: pump_start_ms
     type: unsigned long
     initial_value: "0"
 
@@ -208,6 +229,9 @@ display:
           it.printf(10, 0, id(font1), "%s", id(mode_id).state? "AUTO" : "MANUAL");
           it.printf(108, 13, id(font2), TextAlign::RIGHT, "%0.0f", id(water_level_id).state);
           it.printf(110, 32, id(font3), "%%");
+          if (id(pump_id).state) {
+            it.printf(128, 0, id(font1), TextAlign::RIGHT, "R:%.1fm", id(pump_run_time_sensor_id).state);
+          }
 
       - id: oled_ota_page
         lambda: |-
@@ -266,6 +290,19 @@ number:
     initial_value: 1
     entity_category: "config"
 
+  - platform: template
+    name: "Max Pump Run Time"
+    id: max_pump_run_time_id
+    optimistic: true
+    restore_value: yes
+    min_value: 1
+    max_value: 60
+    step: 1
+    unit_of_measurement: "min"
+    icon: "mdi:clock-alert"
+    initial_value: 15
+    entity_category: "config"
+
 #########################################################################################
 
 button:
@@ -286,6 +323,8 @@ binary_sensor:
     on_release:
       then:
         - switch.toggle: mode_id
+        - lambda: |-
+            id(dryrun_persisted) = false;
         - binary_sensor.template.publish:
             id: dryrun_state_id
             state: false
@@ -295,6 +334,8 @@ binary_sensor:
     name: DryRun
     device_class: problem
     entity_category: diagnostic
+    lambda: |-
+      return id(dryrun_persisted);
 
   - platform: gpio
     id: pump_button_id
@@ -365,13 +406,10 @@ sensor:
           min_value: 0.0
           max_value: 100.0
           ignore_out_of_range: False
-      - median: # Smooth out noise
+      - median: # Robust spike rejection and smoothing
           window_size: 7
-          send_every: 3
-          send_first_at: 1
-      - sliding_window_moving_average: # Further stabilize percentage
-          window_size: 5
           send_every: 1
+          send_first_at: 1
 
     lambda: |-
       if (id(sensor_id).has_state()) {
@@ -392,9 +430,9 @@ sensor:
                   - binary_sensor.is_off: dryrun_state_id
               then:
                 - switch.turn_on: pump_id
-                - text_sensor.template.publish:
-                    id: pump_last_reason_id
-                    state: "Auto Start"
+                - lambda: |-
+                    id(pump_last_reason_persisted) = "Auto Start";
+                    id(pump_last_reason_id).publish_state("Auto Start");
                 - logger.log:
                     tag: "water_level"
                     level: warn
@@ -411,11 +449,42 @@ sensor:
                     tag: "water_level"
                     level: warn
                     format: "Water level above stop threshold, turning OFF pump"
-                - text_sensor.template.publish:
-                    id: pump_last_reason_id
-                    state: "Auto Stop"
+                - lambda: |-
+                    id(pump_last_reason_persisted) = "Auto Stop";
+                    id(pump_last_reason_id).publish_state("Auto Stop");
+
+  - platform: template
+    name: "Pump Run Time"
+    id: pump_run_time_sensor_id
+    unit_of_measurement: "min"
+    accuracy_decimals: 1
+    icon: "mdi:timer-outline"
+    update_interval: 10s
+    lambda: |-
+      if (id(pump_id).state) {
+        return (millis() - id(pump_start_ms)) / 60000.0f;
+      }
+      return 0.0f;
+
 
 #########################################################################################
+
+#########################################################################################
+
+script:
+  - id: pump_safety_timeout
+    mode: restart
+    then:
+      - delay: !lambda "return id(max_pump_run_time_id).state * 60000;"
+      - if:
+          condition:
+            switch.is_on: pump_id
+          then:
+            - switch.turn_off: pump_id
+            - lambda: |-
+                id(pump_last_reason_persisted) = "Timeout Safety";
+                id(pump_last_reason_id).publish_state("Timeout Safety");
+            - logger.log: "Pump shut down due to run-time safety limit"
 
 switch:
   - platform: template
@@ -428,13 +497,17 @@ switch:
     on_turn_on:
       then:
         - lambda: |-
+            id(pump_start_ms) = millis();
             id(last_dryrun_ts) = millis();
             digitalWrite($relay_1_pin, HIGH);
             digitalWrite($led_pin, HIGH);
+            id(dryrun_persisted) = false;
             id(dryrun_state_id).publish_state(false);
+        - script.execute: pump_safety_timeout
     turn_on_action:
       then:
         - lambda: |-
+            id(pump_last_reason_persisted) = "user";
             id(pump_last_reason_id).publish_state("user");
 
     on_turn_off:
@@ -442,8 +515,7 @@ switch:
         - lambda: |-
             digitalWrite($relay_1_pin, LOW);
             digitalWrite($led_pin, LOW);
-
-            // id(dryrun_state_id).publish_state(false);
+        - script.stop: pump_safety_timeout
     # turn_off_action:
     #   then:
     #     - lambda: |-
@@ -461,6 +533,7 @@ switch:
         if(id(water_level_id).state <= id(start_pump_id).state)
         {
           id(pump_id).turn_on();
+          id(pump_last_reason_persisted) = "Auto Start";
           id(pump_last_reason_id).publish_state("Auto Start");
         }
 
@@ -475,12 +548,6 @@ switch:
 interval:
   - interval: 100ms
     then:
-      - wait_until:
-          condition:
-            and:
-              - lambda: return !isnan(id(sensor_id).state);
-              - api.connected:
-          timeout: 10s
       - lambda: |-
           if(id(dryrun_state_id).state || id(sensor_state_id).state)
           {
@@ -511,8 +578,10 @@ interval:
                     ESP_LOGE("DRYRUN", "Dryrun detected, turning off pump");
                     id(oled_dryrun_page).show();
                     id(dryrun_last_dist) = id(sensor_id).state;
+                    id(dryrun_persisted) = true;
                     id(dryrun_state_id).publish_state(true);
                     id(pump_id).turn_off();
+                    id(pump_last_reason_persisted) = "dryrun";
                     id(pump_last_reason_id).publish_state("dryrun");
                     id(mode_id).turn_off();
                   }
@@ -532,6 +601,7 @@ interval:
             ESP_LOGE("SENSOR", "Sensor ERROR");
             id(sensor_state_id).publish_state(true);
             id(pump_id).turn_off();
+            id(pump_last_reason_persisted) = "Sensor Error";
             id(pump_last_reason_id).publish_state("Sensor Error");
           }
 
