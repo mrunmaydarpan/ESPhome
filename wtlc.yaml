@@ -1,7 +1,8 @@
 substitutions:
   tank_height: 110
   full_tank_distance: 15
-  OTA_URL: xxx
+  OTA_URL: https://raw.githubusercontent.com/mrunmaydarpan/ESPhome/dev/OTA/WTLC/firmware.ota.bin
+  OTA_MD5: "03d7a3d96ee69953d4626af09d53b6b0"
   # dryrun_interval: 3 # minutes
   # sensor_check_interval: 5s
 
@@ -357,19 +358,23 @@ binary_sensor:
       mode: INPUT_PULLUP
       inverted: True
     id: mode_button_id
-    on_release:
-      then:
-        - switch.toggle: mode_id
-        - lambda: |-
-            id(dryrun_persisted) = false;
-        - binary_sensor.template.publish:
-            id: dryrun_state_id
-            state: false
     on_click:
-      - min_length: 2s
-        max_length: 5s
+      - min_length: 50ms
+        max_length: 500ms
         then:
-          - lambda: ESP_LOGI("test", "long press");
+          - switch.toggle: mode_id
+          - lambda: |-
+              id(dryrun_persisted) = false;
+          - binary_sensor.template.publish:
+              id: dryrun_state_id
+              state: false
+      - min_length: 5s
+        max_length: 10s
+        then:
+          - logger.log: "Starting OTA update from button press..."
+          - ota.http_request.flash:
+              url: ${OTA_URL}
+              md5: ${OTA_MD5}
 
   - platform: template
     id: dryrun_state_id
