@@ -10,11 +10,18 @@ esphome:
   project:
     name: "MDtronix.1ch smart switch"
     version: "1.0"
+  on_boot:
+    priority: 600
+    then:
+      - text_sensor.template.publish:
+          id: restart_reason_id
+          state: !lambda "return std::string(ESP.getResetReason().c_str());"
 
 esp8266:
-  board: esp01_1m
+  board: esp8285
 
 logger:
+  level: INFO
 api:
 # mqtt:
 #   broker: homeassistant.local
@@ -64,7 +71,16 @@ text_sensor:
   - platform: wifi_info
     ip_address:
       name: IP
-      icon: mdi:ip        
+      icon: mdi:ip      
+  - platform: template
+    name: "Restart Reason"
+    icon: mdi:restart
+    entity_category: diagnostic
+    id: restart_reason_id
+    update_interval: never
+    lambda: |-      
+      return {ESP.getResetReason().c_str()};    
+
 button:
   - platform: restart
-    name: restart        
+    name: restart

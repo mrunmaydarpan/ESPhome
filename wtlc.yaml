@@ -1,10 +1,6 @@
 substitutions:
   tank_height: 110
   full_tank_distance: 15
-  OTA_URL: https://raw.githubusercontent.com/mrunmaydarpan/ESPhome/dev/OTA/WTLC/firmware.ota.bin
-  OTA_MD5: "03d7a3d96ee69953d4626af09d53b6b0"
-  # dryrun_interval: 3 # minutes
-  # sensor_check_interval: 5s
 
 esphome:
   name: wtlc
@@ -23,15 +19,28 @@ esphome:
         - wait_until:
             condition:
               lambda: return !isnan(id(sensor_id).state);
-            timeout: 3s
+            timeout: 10s
         - display.page.show: oled_level_page
+        - text_sensor.template.publish:
+            id: restart_reason_id
+            state: !lambda "return std::string(ESP.getResetReason().c_str());"
         - if:
             condition:
-              lambda: 'return id(pump_last_reason_persisted) != "";'
+              lambda: "return id(pump_last_reason_persisted) != 0;"
             then:
               - text_sensor.template.publish:
                   id: pump_last_reason_id
-                  state: !lambda "return id(pump_last_reason_persisted);"
+                  state: !lambda |-
+                    switch(id(pump_last_reason_persisted)) {
+                      case 1: return "Auto Start";
+                      case 2: return "Auto Stop";
+                      case 3: return "User";
+                      case 4: return "Dryrun";
+                      case 5: return "Sensor Error";
+                      case 6: return "Timeout Safety";
+                      case 7: return "Auto Start (6AM)";
+                      default: return "Unknown";
+                    }
 
         # - wait_until:
         #     - lambda: return !isnan(id(sensor_id).state);
@@ -48,18 +57,7 @@ esp8266:
     version: recommended
   restore_from_flash: true
 
-preferences:
-  flash_write_interval: 1min
-# debug:
 api:
-  on_client_connected:
-    then:
-      - text_sensor.template.publish:
-          id: restart_reason_id
-          state: !lambda "return ESP.getResetReason().c_str();"
-
-http_request:
-  verify_ssl: false
 
 ota:
   - platform: esphome
@@ -67,22 +65,14 @@ ota:
     on_progress:
       then:
         - lambda: |-
-            id(ota_progress) = x;  // store progress percentage
+            id(ota_progress) = x * 100.0f;  // store progress percentage
             id(oled_id).update();
         - display.page.show: oled_ota_page
     on_end:
       then:
         - logger.log: "OTA completed"
         - lambda: id(oled_id)->update();
-  - platform: http_request
-    id: http_request_id
-    on_begin: 
-      then:
-        - logger.log: "HTTP Request Begin"
-    on_end:
-      then:
-        - logger.log: "HTTP Request End"
-    
+
 wifi:
   ssid: !secret wifi_ssid
   password: !secret wifi_password
@@ -90,14 +80,13 @@ wifi:
   ap: {}
 
 captive_portal:
-# web_server:
-#   version: 3
+web_server:
 dashboard_import:
   package_import_url: github://mrunmaydarpan/ESPhome/wtlc.yaml@dev
   import_full_config: False
 
 logger:
-  level: DEBUG
+  level: INFO
   logs:
     sensor: NONE
 
@@ -132,7 +121,7 @@ time:
               then:
                 - switch.turn_on: pump_id
                 - lambda: |-
-                    id(pump_last_reason_persisted) = "Auto Start (6AM)";
+                    id(pump_last_reason_persisted) = 7;
                     id(pump_last_reason_id).publish_state("Auto Start (6AM)");
                 - logger.log: "Morning resumption: Starting pump as level is low."
 
@@ -161,18 +150,19 @@ globals:
     initial_value: "false"
 
   - id: pump_last_reason_persisted
-    type: std::string
+    type: int
     restore_value: yes
-    initial_value: '""'
+    initial_value: "0"
   - id: ota_progress
     type: float
     restore_value: no
     initial_value: "0"
 
-  - id: splash_flag
-    type: bool
-    restore_value: no
-    initial_value: "false"
+  # - id: splash_flag
+  #   type: bool
+  #   restore_value: no
+  #   initial_value: "false"
+
   - id: last_sensor_ts
     type: unsigned long
     initial_value: "0"
@@ -202,7 +192,8 @@ text_sensor:
     entity_category: diagnostic
     id: restart_reason_id
     update_interval: never
-    # lambda: return { ESP.getResetReason().c_str() };
+    lambda: |-
+      return {ESP.getResetReason().c_str()};
 
   - platform: template
     name: "Pump Last Reason"
@@ -234,12 +225,15 @@ font:
   - file: "gfonts://Roboto"
     id: font1
     size: 14
+    glyphs: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789.,:;()!% "
   - file: "gfonts://Roboto"
     id: font2
     size: 45
+    glyphs: "0123456789."
   - file: "gfonts://Roboto"
     id: font3
     size: 24
+    glyphs: "%"
 image:
   defaults:
     type: binary
@@ -371,10 +365,7 @@ binary_sensor:
       - min_length: 5s
         max_length: 10s
         then:
-          - logger.log: "Starting OTA update from button press..."
-          - ota.http_request.flash:
-              url: ${OTA_URL}
-              md5: ${OTA_MD5}
+          - logger.log: "Button Long Pressed"
 
   - platform: template
     id: dryrun_state_id
@@ -392,6 +383,9 @@ binary_sensor:
       inverted: True
     on_press:
       then:
+        - lambda: |-
+            id(pump_last_reason_persisted) = 3;
+            id(pump_last_reason_id).publish_state("User");
         - switch.toggle: pump_id
 
   - platform: template
@@ -405,12 +399,11 @@ binary_sensor:
     name: "Quiet Hours"
     lambda: |-
       auto now = id(sntp_time).now();
-      return id(safety_mode_id).state && now.is_valid() && (now.hour >= 23 || now.hour < 6);
+      return id(safety_mode_id).state && (!now.is_valid() || now.hour >= 23 || now.hour < 6);
 
 #########################################################################################
 
 sensor:
-  # - platform: template
   - platform: a02yyuw
     name: "Distance"
     id: sensor_id
@@ -448,7 +441,7 @@ sensor:
     id: water_level_id
     accuracy_decimals: 0
     unit_of_measurement: "%"
-    update_interval: 1s
+    update_interval: 2s
     icon: mdi:water-percent
     name: Level
     filters:
@@ -460,16 +453,16 @@ sensor:
           max_value: 100.0
           ignore_out_of_range: False
       - median: # Robust spike rejection and smoothing
-          window_size: 7
+          window_size: 5
           send_every: 1
           send_first_at: 1
-
+    
     lambda: |-
       if (id(sensor_id).has_state()) {
-        ESP_LOGD("SENSOR", "Distance: %.0f cm | Level: %.0f%%", id(sensor_id).state, id(water_level_id).state);
+        // ESP_LOGD("SENSOR", "Distance: %.0f cm | Level: %.0f%%", id(sensor_id).state, id(water_level_id).state);
         return id(sensor_id).state;
       }
-      return {}; // Return NAN (Not a Number) if sensor has no state
+      return {};
 
     on_value_range:
       - below: !lambda return id(start_pump_id).state;
@@ -485,7 +478,7 @@ sensor:
               then:
                 - switch.turn_on: pump_id
                 - lambda: |-
-                    id(pump_last_reason_persisted) = "Auto Start";
+                    id(pump_last_reason_persisted) = 1;
                     id(pump_last_reason_id).publish_state("Auto Start");
                 - logger.log:
                     tag: "water_level"
@@ -504,7 +497,7 @@ sensor:
                     level: warn
                     format: "Water level above stop threshold, turning OFF pump"
                 - lambda: |-
-                    id(pump_last_reason_persisted) = "Auto Stop";
+                    id(pump_last_reason_persisted) = 2;
                     id(pump_last_reason_id).publish_state("Auto Stop");
 
   - platform: template
@@ -533,7 +526,7 @@ script:
           then:
             - switch.turn_off: pump_id
             - lambda: |-
-                id(pump_last_reason_persisted) = "Timeout Safety";
+                id(pump_last_reason_persisted) = 6;
                 id(pump_last_reason_id).publish_state("Timeout Safety");
             - logger.log: "Pump shut down due to run-time safety limit"
 
@@ -550,8 +543,9 @@ switch:
         - lambda: |-
             id(pump_start_ms) = millis();
             id(last_dryrun_ts) = millis();
-            digitalWrite($relay_1_pin, HIGH);
-            digitalWrite($led_pin, HIGH);
+            id(dryrun_last_dist) = id(sensor_id).state;
+            digitalWrite(${relay_1_pin}, HIGH);
+            digitalWrite(${led_pin}, HIGH);
             id(dryrun_persisted) = false;
             id(dryrun_state_id).publish_state(false);
         - if:
@@ -561,15 +555,15 @@ switch:
               - script.execute: pump_safety_timeout
     turn_on_action:
       then:
-        - lambda: |-
-            id(pump_last_reason_persisted) = "user";
-            id(pump_last_reason_id).publish_state("user");
+        - logger.log: "Pump turned ON"
 
     on_turn_off:
       then:
         - lambda: |-
-            digitalWrite($relay_1_pin, LOW);
-            digitalWrite($led_pin, LOW);
+            digitalWrite(${relay_1_pin}, LOW);
+            digitalWrite(${led_pin}, LOW);
+            id(pump_last_reason_persisted) = 0;
+            
         - script.stop: pump_safety_timeout
     # turn_off_action:
     #   then:
@@ -588,10 +582,9 @@ switch:
         if(id(is_quiet_hours_id).state == false && id(water_level_id).state <= id(start_pump_id).state)
         {
           id(pump_id).turn_on();
-          id(pump_last_reason_persisted) = "Auto Start";
+          id(pump_last_reason_persisted) = 1;
           id(pump_last_reason_id).publish_state("Auto Start");
         }
-
 
   - platform: template
     id: dryrun_id
@@ -612,22 +605,18 @@ switch:
 interval:
   - interval: 500ms
     then:
-      - wait_until:
-          condition:
-            - api.connected
-          timeout: 10s
       - lambda: |-
           if(id(dryrun_state_id).state || id(sensor_state_id).state)
           {
-            digitalWrite($led_pin, !digitalRead($led_pin));
+            digitalWrite(${led_pin}, !digitalRead(${led_pin}));
           }
           else
           {
-            digitalWrite($led_pin, digitalRead($relay_1_pin));
+            digitalWrite(${led_pin}, digitalRead(${relay_1_pin}));
           }
 
   - interval: 1s
-    # startup_delay: 15s
+    startup_delay: 15s
     then:
       - if:
           condition:
@@ -643,14 +632,14 @@ interval:
                   float current_dist = id(sensor_id).state;
                   ESP_LOGI("DRYRUN", "Checking: current %.0f cm | last %.0f cm", current_dist, id(dryrun_last_dist));
                   
-                  if(current_dist >= id(dryrun_last_dist) || isnan(id(dryrun_last_dist)))
+                  if(!isnan(current_dist) && !isnan(id(dryrun_last_dist)) && current_dist >= (id(dryrun_last_dist) + 0.5f))
                   {
                     ESP_LOGE("DRYRUN", "Dryrun detected!");
                     id(dryrun_persisted) = true;
                     id(dryrun_state_id).publish_state(true);
                     id(pump_id).turn_off();
-                    id(pump_last_reason_persisted) = "dryrun";
-                    id(pump_last_reason_id).publish_state("dryrun");
+                    id(pump_last_reason_persisted) = 4;
+                    id(pump_last_reason_id).publish_state("Dryrun");
                     id(mode_id).turn_off();
                   }
                   id(dryrun_last_dist) = current_dist;
@@ -660,13 +649,14 @@ interval:
       # If more than 5 seconds have passed, it assumes a sensor error.
       - lambda: |-
           unsigned long now = millis();
-          if (id(sensor_id).has_state() && now - id(last_sensor_ts) > 5000 || isnan(id(sensor_id).state))
+          // if (id(sensor_id).has_state() && now - id(last_sensor_ts) > 5000 || isnan(id(sensor_id).state))
+          if (id(sensor_id).has_state() && (now - id(last_sensor_ts) > 5000 || isnan(id(sensor_id).state)))
           {
             if (id(sensor_state_id).state == false) {
               ESP_LOGE("SENSOR", "Sensor ERROR");
               id(sensor_state_id).publish_state(true);
               id(pump_id).turn_off();
-              id(pump_last_reason_persisted) = "Sensor Error";
+              id(pump_last_reason_persisted) = 5;
               id(pump_last_reason_id).publish_state("Sensor Error");
             }
           }

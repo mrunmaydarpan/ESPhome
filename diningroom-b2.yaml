@@ -15,6 +15,12 @@ esphome:
   project:
     name: "MDtronix.3ch smart switch"
     version: "1.0"
+  on_boot:
+    priority: 600
+    then:
+      - text_sensor.template.publish:
+          id: restart_reason_id
+          state: !lambda "return std::string(ESP.getResetReason().c_str());"
 
 esp8266:
   board: esp8285
@@ -25,32 +31,32 @@ wifi:
   ap: {}
   fast_connect: True
   min_auth_mode: WPA2
-  # manual_ip: 
+  # manual_ip:
   #   static_ip: 192.168.0.31
   #   gateway: 192.168.0.1
   #   subnet: 255.255.255.0
-  
+
 captive_portal:
 logger:
   level: INFO
 api:
-mqtt:
-  broker: !secret mqtt_broker
-  username: !secret mqtt_user
-  password: !secret mqtt_password
-  discover_ip: False
-  discovery: false
-  id: mqtt_id
-  
+# mqtt:
+#   broker: !secret mqtt_broker
+#   username: !secret mqtt_user
+#   password: !secret mqtt_password
+#   discover_ip: False
+#   discovery: false
+#   id: mqtt_id
+
 ota:
   - platform: esphome
 # web_server:
-#   version: 3
+#   version: 2
 # debug:
 
 status_led:
   pin: $statusLed
-  
+
 output:
   - platform: gpio
     pin: $relayPin_1
@@ -81,7 +87,7 @@ light:
 binary_sensor:
   # - platform: status
   #   name: $deviceName Status
-    
+
   # - platform: gpio
   #   id: switch_1
   #   pin:
@@ -117,15 +123,20 @@ binary_sensor:
     filters:
       - delayed_on: 500ms
       - delayed_off: 500ms
-         
+
 text_sensor:
-  # - platform: debug
-  #   reset_reason:
-  #     name: "Reset Reason"   
+  - platform: template
+    name: "Restart Reason"
+    icon: mdi:restart
+    entity_category: diagnostic
+    id: restart_reason_id
+    update_interval: never
+    lambda: |-
+      return {ESP.getResetReason().c_str()};
   - platform: wifi_info
     ip_address:
       name: IP
-      icon: mdi:ip  
+      icon: mdi:ip
 button:
   - platform: restart
     name: restart

@@ -16,7 +16,13 @@ esphome:
   project:
     name: "MDtronix.4ch smart swtich"
     version: "2.0"
-    
+  on_boot:
+    priority: 600
+    then:
+      - text_sensor.template.publish:
+          id: restart_reason_id
+          state: !lambda "return std::string(ESP.getResetReason().c_str());"
+
 esp8266:
   board: esp01_1m
 
@@ -26,15 +32,17 @@ wifi:
   ap: {}
   fast_connect: True
   min_auth_mode: WPA2
-  # manual_ip: 
+  # manual_ip:
   #   static_ip: 192.168.0.31
   #   gateway: 192.168.0.1
   #   subnet: 255.255.255.0
 
 captive_portal:
 web_server:
+  version: 2
 logger:
-# debug:  
+  level: INFO
+# debug:
 api:
 # mqtt:
 #   broker: homeassistant.local
@@ -43,17 +51,17 @@ api:
 #   id: mqtt_client
 ota:
   - platform: esphome
-  
+
 output:
   - platform: gpio
     pin: $relaypin_1
     id: relay_1
   - platform: gpio
     pin: $relaypin_2
-    id: relay_2    
+    id: relay_2
   - platform: gpio
     pin: $relaypin_3
-    id: relay_3    
+    id: relay_3
   - platform: gpio
     pin: $relaypin_4
     id: relay_4
@@ -122,13 +130,18 @@ status_led:
   pin: $statusled
 
 text_sensor:
-  # - platform: debug
-  #   reset_reason:
-  #     name: "Reset Reason"     
+  - platform: template
+    name: "Restart Reason"
+    icon: mdi:restart
+    entity_category: diagnostic
+    id: restart_reason_id
+    update_interval: never
+    lambda: |-
+      return {ESP.getResetReason().c_str()};
   - platform: wifi_info
     ip_address:
       name: IP
-      icon: mdi:ip  
+      icon: mdi:ip
 button:
   - platform: restart
-    name: restart        
+    name: restart

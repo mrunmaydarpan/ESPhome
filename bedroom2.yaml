@@ -8,7 +8,13 @@ esphome:
   comment: "MDtronix 4ch Smart Switch"
   project:
     name: "MDtronix.4ch Smart Switch"
-    version: "3.0" 
+    version: "3.0"
+  on_boot:
+    priority: 600
+    then:
+      - text_sensor.template.publish:
+          id: restart_reason_id
+          state: !lambda "return std::string(ESP.getResetReason().c_str());"
 
 esp8266:
   board: esp8285
@@ -19,13 +25,10 @@ wifi:
   ap: {}
   fast_connect: True
   min_auth_mode: WPA2
-  manual_ip: 
-    static_ip: 192.168.0.227
-    gateway: 192.168.0.1
-    subnet: 255.255.255.0
 
 captive_portal:
 logger:
+  level: INFO
 api: 
 ota:
   - platform: esphome
@@ -87,28 +90,21 @@ fan:
       - output.turn_off: relay_4  
     on_speed_set:
       lambda: |-
-        if(id(fan_1).state)
-        {
-          switch(id(fan_1).speed)
-          {
-            case 1:
-              id(mqtt_client).publish("cmnd/irblaster/IRSend", "{\"Protocol\":\"NEC\",\"Bits\":32,\"Data\":\"0xCFD12E\",\"DataLSB\":\"0xF38B74\",\"Repeat\":0}");
-              break;
-            case 2:
-              id(mqtt_client).publish("cmnd/irblaster/IRSend", "{\"Protocol\":\"NEC\",\"Bits\":32,\"Data\":\"0xCF09F6\",\"DataLSB\":\"0xF3906F\",\"Repeat\":0}"); 
-              break;
-            case 3:
-              id(mqtt_client).publish("cmnd/irblaster/IRSend", "{\"Protocol\":\"NEC\",\"Bits\":32,\"Data\":\"0xCF51AE\",\"DataLSB\":\"0xF38A75\",\"Repeat\":0}");
-              break;
-            case 4:
-              id(mqtt_client).publish("cmnd/irblaster/IRSend", "{\"Protocol\":\"NEC\",\"Bits\":32,\"Data\":\"0xCFC936\",\"DataLSB\":\"0xF3936C\",\"Repeat\":0}");
-              break;
-            case 5:
-              id(mqtt_client).publish("cmnd/irblaster/IRSend", "{\"Protocol\":\"NEC\",\"Bits\":32,\"Data\":\"0xCF11EE\",\"DataLSB\":\"0xF38877\",\"Repeat\":0}");
-              break;
-            case 6:
-              id(mqtt_client).publish("cmnd/irblaster/IRSend", "{\"Protocol\":\"NEC\",\"Bits\":32,\"Data\":\"0xCFF10E\",\"DataLSB\":\"0xF38F70\",\"Repeat\":0}");
-              break;
+        if(id(fan_1).state) {
+          const char* d = nullptr;
+          const char* l = nullptr;
+          switch(id(fan_1).speed) {
+            case 1: d = "0xCFD12E"; l = "0xF38B74"; break;
+            case 2: d = "0xCF09F6"; l = "0xF3906F"; break;
+            case 3: d = "0xCF51AE"; l = "0xF38A75"; break;
+            case 4: d = "0xCFC936"; l = "0xF3936C"; break;
+            case 5: d = "0xCF11EE"; l = "0xF38877"; break;
+            case 6: d = "0xCFF10E"; l = "0xF38F70"; break;
+          }
+          if (d && l) {
+            char buf[128];
+            snprintf(buf, sizeof(buf), "{\"Protocol\":\"NEC\",\"Bits\":32,\"Data\":\"%s\",\"DataLSB\":\"%s\",\"Repeat\":0}", d, l);
+            id(mqtt_client).publish("cmnd/irblaster/IRSend", buf);
           }
         }
 binary_sensor:  
@@ -149,9 +145,14 @@ binary_sensor:
       - fan.toggle: fan_1
 
 text_sensor:
-  # - platform: debug
-  #   reset_reason:
-  #     name: "Reset Reason"         
+  - platform: template
+    name: "Restart Reason"
+    icon: mdi:restart
+    entity_category: diagnostic
+    id: restart_reason_id
+    update_interval: never
+    lambda: |-
+      return {ESP.getResetReason().c_str()};
   - platform: wifi_info
     ip_address: 
       name: IP
@@ -159,5 +160,3 @@ text_sensor:
 button:
   - platform: restart
     name: restart
-  # - platform: factory_reset
-  #   name: Factory reset 
